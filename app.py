@@ -13,6 +13,7 @@ app.py — كتالوج مبيعات بوضعين (Streamlit، عربي RTL) و�
 from __future__ import annotations
 import datetime as dt
 import os
+from collections import Counter
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -130,25 +131,40 @@ def _render_cards(page_items, selectable):
 
 def browse(catalog, selectable):
     """فلترة بالفئة + بحث + تقسيم لصفحات + شبكة الكروت."""
-    cats = sorted({p.get("category") or "أخرى" for p in catalog})
+    # عدد الأصناف لكل فئة (يظهر بجوار اسمها في القائمة)
+    counts = Counter((p.get("category") or "أخرى") for p in catalog)
+    cats = sorted(counts)
+    options = ["كل الفئات"] + cats
+
     f1, f2 = st.columns(2)
-    sel_cat = f1.selectbox("📂 الفئة (اكتب للبحث فيها)", ["كل الفئات"] + cats, key="flt_cat")
-    q = f2.text_input("🔍 بحث بالاسم أو الفئة أو الكود", key="flt_q").strip().lower()
+    sel_cat = f1.selectbox(
+        "📂 اختر الفئة", options, key="flt_cat",
+        format_func=lambda c: f"كل الفئات ({len(catalog)})" if c == "كل الفئات" else f"{c} ({counts[c]})",
+    )
+    q = f2.text_input("🔍 بحث", key="flt_q").strip().lower()
+    scope = st.radio("نطاق البحث", ["الكل", "الاسم", "الكود", "الفئة"],
+                     horizontal=True, key="flt_scope")
 
     def _match(p):
         if sel_cat != "كل الفئات" and (p.get("category") or "أخرى") != sel_cat:
             return False
         if not q:
             return True
-        # البحث يشمل الاسم والفئة والكود معاً
-        return (q in p["name"].lower()
-                or q in (p.get("category") or "").lower()
-                or q in (p.get("code") or "").lower())
+        name = p["name"].lower()
+        code = (p.get("code") or "").lower()
+        cat = (p.get("category") or "").lower()
+        if scope == "الاسم":
+            return q in name
+        if scope == "الكود":
+            return q in code
+        if scope == "الفئة":
+            return q in cat
+        return q in name or q in code or q in cat
 
     items = [(i, p) for i, p in enumerate(catalog) if _match(p)]
 
-    # إعادة الصفحة للأولى عند تغيّر الفلتر/البحث
-    sig = (sel_cat, q)
+    # إعادة الصفحة للأولى عند تغيّر الفلتر/البحث/النطاق
+    sig = (sel_cat, q, scope)
     if ss.get("_flt_sig") != sig:
         ss._flt_sig = sig
         ss.page = 1
