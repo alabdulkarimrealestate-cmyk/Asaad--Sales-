@@ -97,6 +97,31 @@ def build_price_map(paths, sheet="details", code_col="الصنف", price_col="أ
     return out
 
 
+def build_name_map(paths, sheet="details", code_col="الصنف", name_col="الصنف: الاسم") -> dict:
+    """
+    يبني خريطة {كود مُطبّع: اسم عربي} من قوائم الأسعار.
+    لكل كود نأخذ أول اسم عربي غير فارغ. الصف التقني الأول يُتجاهَل.
+    """
+    import warnings
+    out: dict[str, str] = {}
+    for p in paths:
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                df = pd.read_excel(p, sheet_name=sheet, dtype=str).iloc[1:]
+        except Exception:  # noqa: BLE001
+            continue
+        if code_col not in df.columns or name_col not in df.columns:
+            continue
+        for code_raw, name_raw in zip(df[code_col], df[name_col]):
+            code = normalize_code(code_raw)
+            name = "" if name_raw is None else str(name_raw).strip()
+            if not code or not name or name.lower() == "nan":
+                continue
+            out.setdefault(code, name)  # أول اسم غير فارغ يفوز
+    return out
+
+
 def read_path(path: str) -> pd.DataFrame:
     """يقرأ ملف الأصناف المُضمّن مع التطبيق من مسار على القرص (CSV/Excel)."""
     if path.lower().endswith((".xlsx", ".xls")):

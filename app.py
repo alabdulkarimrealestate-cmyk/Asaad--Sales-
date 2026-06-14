@@ -68,6 +68,13 @@ def money(v):
     return msg.fmt_money(v, LANG)
 
 
+def disp(prod):
+    """اسم العرض: عربي من قوائم الأسعار إن وُجد ولغة الواجهة عربية، وإلا الإنجليزي."""
+    if LANG == "ar" and prod.get("name_ar"):
+        return prod["name_ar"]
+    return prod["name"]
+
+
 # ----------------------------- تحميل الكتالوج + دمج الأسعار -----------------------------
 @st.cache_data(show_spinner=True)
 def load_default_catalog() -> list[dict]:
@@ -76,14 +83,15 @@ def load_default_catalog() -> list[dict]:
     mapping = dl.auto_mapping(df)
     catalog = dl.build_catalog(df, mapping, only_active=True)
 
-    price_map = dl.build_price_map(sorted(glob.glob(PRICE_GLOB)))
-    matched = 0
+    paths = sorted(glob.glob(PRICE_GLOB))
+    price_map = dl.build_price_map(paths)
+    name_map = dl.build_name_map(paths)   # أسماء عربية من قوائم الأسعار
     for p in catalog:
         code = dl.normalize_code(p.get("code"))
         if code and code in price_map:
             p["price"] = price_map[code]   # أقل سعر من القوائم
-            matched += 1
-        # غير الموجود: يبقى بسعر Shopify كما هو (لا تغيير)
+        # غير الموجود: يبقى بسعر Shopify كما هو
+        p["name_ar"] = name_map.get(code, "") if code else ""
     return catalog
 
 
@@ -135,7 +143,7 @@ def _render_cards(page_items, selectable):
             with col:
                 st.markdown('<div class="card">', unsafe_allow_html=True)
                 product_image(prod)
-                st.markdown(f"**{prod['name']}**")
+                st.markdown(f"**{disp(prod)}**")
                 meta = []
                 if prod["code"]:
                     meta.append(t("code_label", LANG, c=prod["code"]))
@@ -177,7 +185,7 @@ def browse(catalog, selectable):
             return False
         if not q:
             return True
-        name = p["name"].lower()
+        name = (p["name"] + " " + (p.get("name_ar") or "")).lower()  # بحث بالاسمين
         code = (p.get("code") or "").lower()
         cat = (p.get("category") or "").lower()
         if scope == 1:
@@ -226,7 +234,7 @@ def customer_view(catalog, rep_number):
 
 def cart_panel(catalog, rep_number):
     selected = [
-        {"name": catalog[i]["name"], "code": catalog[i]["code"], "price": catalog[i]["price"],
+        {"name": disp(catalog[i]), "code": catalog[i]["code"], "price": catalog[i]["price"],
          "unit": catalog[i]["unit"], "qty": q}
         for i, q in ss.qty.items() if i < len(catalog)
     ]
