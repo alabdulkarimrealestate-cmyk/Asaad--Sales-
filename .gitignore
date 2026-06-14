@@ -1,0 +1,12 @@
+# أسرار — لا تُرفع أبداً
+.env
+
+# بايثون
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# بيانات مؤقتة
+*.tmp
+.streamlit/secrets.toml
