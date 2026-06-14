@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime as dt
 import os
 import streamlit as st
+import streamlit.components.v1 as components
 
 import data_loader as dl
 import messaging as msg
@@ -173,18 +174,39 @@ def rep_view(catalog):
     with st.expander("🔗 توليد رابط العميل", expanded=True):
         rep_number = st.text_input(
             "📱 رقمك على واتساب (صيغة دولية بدون + أو أصفار، مثال: 9659xxxxxxx)")
-        base_url = st.text_input(
-            "🌐 رابط تطبيقك الأساسي",
-            placeholder="https://your-app.streamlit.app",
-            help="انسخه من شريط المتصفح بعد النشر على Streamlit Cloud (مرة واحدة).")
         clean = msg.clean_number(rep_number)
         if clean:
-            base = (base_url or "").strip().rstrip("/")
-            customer_link = f"{base}/?rep={clean}" if base else f"?rep={clean}"
-            st.success("رابط العميل جاهز — انسخه وأرسله لعملائك:")
-            st.code(customer_link, language=None)
-            if not base:
-                st.caption("⚠️ ألصق رابطك الأساسي أعلاه للحصول على رابط كامل قابل للنقر.")
+            # نولّد الرابط الكامل تلقائياً من عنوان التطبيق الحالي (JS داخل المتصفح)،
+            # فلا يحتاج المندوب لصق أي رابط يدوياً. المكوّن يعمل داخل iframe لذا
+            # نقرأ عنوان الصفحة الأم عبر window.parent.location.
+            components.html(
+                f"""
+                <div dir="rtl" style="font-family:'Segoe UI',Tahoma,sans-serif;">
+                  <div style="background:#0a7d2c;color:#fff;padding:10px 12px;border-radius:8px;
+                              margin-bottom:8px;font-weight:700;">
+                    ✅ رابط عميلك جاهز — انسخه وأرسله على واتساب:
+                  </div>
+                  <input id="repLink" readonly
+                         style="width:100%;box-sizing:border-box;padding:12px;font-size:14px;
+                                border:1px solid #ccc;border-radius:8px;direction:ltr;text-align:left;"/>
+                  <button id="cpy"
+                     onclick="navigator.clipboard.writeText(document.getElementById('repLink').value);
+                              this.innerText='✅ تم النسخ';setTimeout(()=>this.innerText='📋 نسخ الرابط',1500);"
+                     style="margin-top:8px;width:100%;padding:12px;background:#25D366;color:#fff;
+                            border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer;">
+                    📋 نسخ الرابط
+                  </button>
+                  <script>
+                    (function(){{
+                      var loc = window.parent.location;
+                      var base = (loc.origin + loc.pathname).replace(/\\/+$/,'');
+                      document.getElementById('repLink').value = base + '/?rep={clean}';
+                    }})();
+                  </script>
+                </div>
+                """,
+                height=170,
+            )
         else:
             st.info("أدخل رقمك لتوليد الرابط.")
 
