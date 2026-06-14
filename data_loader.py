@@ -65,6 +65,38 @@ def read_file(uploaded_file) -> pd.DataFrame:
         raise ValueError(f"تعذّرت قراءة الملف: {exc}") from exc
 
 
+def normalize_code(value) -> str:
+    """توحيد الكود للمطابقة: إزالة الفراغات الزائدة + حروف كبيرة."""
+    return " ".join(str(value or "").strip().upper().split())
+
+
+def build_price_map(paths, sheet="details", code_col="الصنف", price_col="أقل سعر") -> dict:
+    """
+    يبني خريطة {كود مُطبّع: أقل سعر} من ملفات قوائم الأسعار.
+    لكل كود نأخذ أصغر قيمة موجبة في عمود السعر عبر كل الملفات والصفوف.
+    الصف التقني الأول في شيت details يُتجاهَل.
+    """
+    import warnings
+    out: dict[str, float] = {}
+    for p in paths:
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")  # تحذير أنماط openpyxl غير الضار
+                df = pd.read_excel(p, sheet_name=sheet, dtype=str).iloc[1:]
+        except Exception:  # noqa: BLE001 — ملف تالف/شيت مفقود: نتخطّاه
+            continue
+        if code_col not in df.columns or price_col not in df.columns:
+            continue
+        for code_raw, price_raw in zip(df[code_col], df[price_col]):
+            code = normalize_code(code_raw)
+            price = _to_float(price_raw)
+            if not code or price is None or price <= 0:
+                continue
+            if code not in out or price < out[code]:
+                out[code] = price
+    return out
+
+
 def read_path(path: str) -> pd.DataFrame:
     """يقرأ ملف الأصناف المُضمّن مع التطبيق من مسار على القرص (CSV/Excel)."""
     if path.lower().endswith((".xlsx", ".xls")):
