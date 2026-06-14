@@ -132,14 +132,20 @@ def browse(catalog, selectable):
     """فلترة بالفئة + بحث + تقسيم لصفحات + شبكة الكروت."""
     cats = sorted({p.get("category") or "أخرى" for p in catalog})
     f1, f2 = st.columns(2)
-    sel_cat = f1.selectbox("📂 الفئة", ["كل الفئات"] + cats, key="flt_cat")
-    q = f2.text_input("🔍 بحث بالاسم", key="flt_q").strip().lower()
+    sel_cat = f1.selectbox("📂 الفئة (اكتب للبحث فيها)", ["كل الفئات"] + cats, key="flt_cat")
+    q = f2.text_input("🔍 بحث بالاسم أو الفئة أو الكود", key="flt_q").strip().lower()
 
-    items = [
-        (i, p) for i, p in enumerate(catalog)
-        if (sel_cat == "كل الفئات" or (p.get("category") or "أخرى") == sel_cat)
-        and (not q or q in p["name"].lower())
-    ]
+    def _match(p):
+        if sel_cat != "كل الفئات" and (p.get("category") or "أخرى") != sel_cat:
+            return False
+        if not q:
+            return True
+        # البحث يشمل الاسم والفئة والكود معاً
+        return (q in p["name"].lower()
+                or q in (p.get("category") or "").lower()
+                or q in (p.get("code") or "").lower())
+
+    items = [(i, p) for i, p in enumerate(catalog) if _match(p)]
 
     # إعادة الصفحة للأولى عند تغيّر الفلتر/البحث
     sig = (sel_cat, q)
