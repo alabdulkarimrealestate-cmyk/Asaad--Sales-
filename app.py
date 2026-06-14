@@ -35,7 +35,9 @@ st.markdown(
       html, body, [class*="css"] { font-family: "Segoe UI", Tahoma, sans-serif; }
       h1,h2,h3,h4,p,label,.stMarkdown { text-align: right; }
       .card { border:1px solid #e6e6e6; border-radius:12px; padding:10px;
-              margin-bottom:12px; background:#fff; min-height:120px; }
+              margin-bottom:12px; background:#fff; }
+      /* توحيد ارتفاع الصور = شبكة أنظف وأسرع بصرياً */
+      [data-testid="stImage"] img { height:150px; object-fit:contain; width:100%; }
       .price { color:#0a7d2c; font-weight:700; font-size:1.05rem; }
       .code  { color:#999; font-size:.78rem; }
       .in    { color:#0a7d2c; font-size:.8rem; }
@@ -48,6 +50,10 @@ st.markdown(
 ss = st.session_state
 ss.setdefault("qty", {})            # {index المنتج: الكمية}
 ss.setdefault("custom_catalog", None)  # كتالوج بديل رفعه المندوب (جلسة فقط)
+ss.setdefault("page", 1)           # رقم صفحة الكتالوج الحالية
+
+PAGE_SIZE = 24                     # عدد الأصناف في الصفحة الواحدة (للسرعة)
+COLS = 2                           # عمودان — أنسب للموبايل
 
 
 # ----------------------------- تحميل الكتالوج -----------------------------
@@ -85,85 +91,131 @@ def product_image(prod):
         st.image(PLACEHOLDER, use_container_width=True)
 
 
-def filtered(catalog):
-    q = st.text_input("🔍 بحث عن صنف بالاسم", "").strip().lower()
-    items = [(i, p) for i, p in enumerate(catalog) if (not q or q in p["name"].lower())]
-    st.caption(f"المعروض: {len(items)} من {len(catalog)} صنف")
-    return items
+def _set_qty(idx):
+    """تُستدعى فور تغيير الكمية (on_change) فتحدّث السلة قبل إعادة رسم الصفحة."""
+    v = int(st.session_state.get(f"q{idx}", 0))
+    if v > 0:
+        ss.qty[idx] = v
+    else:
+        ss.qty.pop(idx, None)
+
+
+def _render_cards(page_items, selectable):
+    """يرسم كروت صفحة واحدة (عمودان). selectable=True يضيف عدّاد الكمية."""
+    for s in range(0, len(page_items), COLS):
+        for col, (idx, prod) in zip(st.columns(COLS), page_items[s:s + COLS]):
+            with col:
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                product_image(prod)
+                st.markdown(f"**{prod['name']}**")
+                meta = []
+                if prod["code"]:
+                    meta.append(f'كود: {prod["code"]}')
+                meta.append(f'الوحدة: {prod["unit"]}')
+                st.markdown(f'<span class="code">{" · ".join(meta)}</span>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<span class="price">{msg.fmt_money(prod["price"])}</span> &nbsp; {stock_badge(prod["stock"])}',
+                    unsafe_allow_html=True,
+                )
+                if selectable:
+                    out = prod["stock"] == 0
+                    key = f"q{idx}"
+                    # نزرع القيمة من السلة (تبقى محفوظة عبر الصفحات)
+                    if key not in st.session_state:
+                        st.session_state[key] = int(ss.qty.get(idx, 0))
+                    st.number_input(f"الكمية ({prod['unit']})", min_value=0, step=1,
+                                    key=key, on_change=_set_qty, args=(idx,), disabled=out)
+                st.markdown("</div>", unsafe_allow_html=True)
+
+
+def browse(catalog, selectable):
+    """فلترة بالفئة + بحث + تقسيم لصفحات + شبكة الكروت."""
+    cats = sorted({p.get("category") or "أخرى" for p in catalog})
+    f1, f2 = st.columns(2)
+    sel_cat = f1.selectbox("📂 الفئة", ["كل الفئات"] + cats, key="flt_cat")
+    q = f2.text_input("🔍 بحث بالاسم", key="flt_q").strip().lower()
+
+    items = [
+        (i, p) for i, p in enumerate(catalog)
+        if (sel_cat == "كل الفئات" or (p.get("category") or "أخرى") == sel_cat)
+        and (not q or q in p["name"].lower())
+    ]
+
+    # إعادة الصفحة للأولى عند تغيّر الفلتر/البحث
+    sig = (sel_cat, q)
+    if ss.get("_flt_sig") != sig:
+        ss._flt_sig = sig
+        ss.page = 1
+
+    total_pages = max(1, (len(items) + PAGE_SIZE - 1) // PAGE_SIZE)
+    page = min(max(1, ss.get("page", 1)), total_pages)
+    ss.page = page
+    start = (page - 1) * PAGE_SIZE
+    page_items = items[start:start + PAGE_SIZE]
+
+    st.caption(f"عرض {len(page_items)} من {len(items)} صنف — صفحة {page}/{total_pages}")
+    _render_cards(page_items, selectable)
+
+    if total_pages > 1:
+        prev, info, nxt = st.columns(3)
+        if prev.button("⬅️ السابق", disabled=page <= 1, use_container_width=True, key="pg_prev"):
+            ss.page = page - 1
+            st.rerun()
+        info.markdown(f"<div style='text-align:center;padding-top:8px'>صفحة {page} / {total_pages}</div>",
+                      unsafe_allow_html=True)
+        if nxt.button("التالي ➡️", disabled=page >= total_pages, use_container_width=True, key="pg_next"):
+            ss.page = page + 1
+            st.rerun()
 
 
 # ----------------------------- وضع العميل -----------------------------
 def customer_view(catalog, rep_number):
     st.title(f"🛍️ كتالوج {COMPANY}")
-    st.caption("اختر الأصناف والكميات، ثم أرسل طلبك عبر واتساب بضغطة زر.")
-
-    items = filtered(catalog)
-    cols_per_row = 4
-    for start in range(0, len(items), cols_per_row):
-        for col, (idx, prod) in zip(st.columns(cols_per_row), items[start:start + cols_per_row]):
-            with col:
-                st.markdown('<div class="card">', unsafe_allow_html=True)
-                product_image(prod)
-                st.markdown(f"**{prod['name']}**")
-                if prod["code"]:
-                    st.markdown(f'<span class="code">كود: {prod["code"]}</span>', unsafe_allow_html=True)
-                st.markdown(
-                    f'<span class="price">{msg.fmt_money(prod["price"])}</span> &nbsp; {stock_badge(prod["stock"])}',
-                    unsafe_allow_html=True,
-                )
-                out = prod["stock"] == 0
-                qty = st.number_input("الكمية", min_value=0, step=1,
-                                      value=int(ss.qty.get(idx, 0)),
-                                      key=f"q{idx}", disabled=out)
-                if qty > 0 and not out:
-                    ss.qty[idx] = qty
-                elif idx in ss.qty:
-                    del ss.qty[idx]
-                st.markdown("</div>", unsafe_allow_html=True)
-
-    _order_sidebar(catalog, rep_number)
+    cart_panel(catalog, rep_number)   # السلة ظاهرة دائماً في الأعلى
+    st.divider()
+    browse(catalog, selectable=True)
 
 
-def _order_sidebar(catalog, rep_number):
-    with st.sidebar:
-        st.header("🛒 سلة الطلب")
-        selected = [
-            {"name": catalog[i]["name"], "code": catalog[i]["code"],
-             "price": catalog[i]["price"], "qty": q}
-            for i, q in ss.qty.items() if i < len(catalog)
-        ]
+def cart_panel(catalog, rep_number):
+    """سلة الطلب ظاهرة أعلى الصفحة: العدد + الإجمالي + زر واتساب."""
+    selected = [
+        {"name": catalog[i]["name"], "code": catalog[i]["code"], "price": catalog[i]["price"],
+         "unit": catalog[i]["unit"], "qty": q}
+        for i, q in ss.qty.items() if i < len(catalog)
+    ]
+    with st.container(border=True):
         if not selected:
-            st.info("لم تختر أصنافاً بعد.")
+            st.markdown("### 🛒 سلتك فارغة")
+            st.caption("اختر أصنافاً وكمياتها من الكتالوج بالأسفل.")
             return
 
-        total = 0.0
-        for it in selected:
-            lt = (it["price"] or 0) * it["qty"]
-            total += lt
-            st.write(f"• {it['name']} ×{it['qty']} = {msg.fmt_money(lt)}")
-        st.divider()
-        st.subheader(f"الإجمالي: {msg.fmt_money(total)}")
+        total = sum((it["price"] or 0) * it["qty"] for it in selected)
+        st.markdown(f"### 🛒 سلتك: {len(selected)} صنف &nbsp;—&nbsp; الإجمالي: "
+                    f"<span style='color:#0a7d2c'>{msg.fmt_money(total)}</span>",
+                    unsafe_allow_html=True)
 
-        customer = st.text_input("👤 اسمك (اختياري)")
+        st.text_input("👤 اسمك (اختياري)", key="cust_name")
         order = {
-            "customer": customer,
+            "customer": st.session_state.get("cust_name", ""),
             "date": dt.date.today().strftime("%Y-%m-%d"),
             "items": selected,
             "total": total,
         }
         text, used_compact = msg.build_message(order, COMPANY, mode="auto")
 
-        if not msg.clean_number(rep_number):
-            st.error("رقم المندوب في الرابط غير صالح.")
-            return
-
-        link = msg.whatsapp_link(rep_number, text)
-        st.link_button("📲 إرسال الطلب عبر واتساب", link,
-                       type="primary", use_container_width=True)
+        if msg.clean_number(rep_number):
+            link = msg.whatsapp_link(rep_number, text)
+            st.link_button("📲 إرسال الطلب عبر واتساب", link,
+                           type="primary", use_container_width=True)
+        else:
+            st.error("رقم المندوب في الرابط غير صالح — اطلب من المندوب رابطاً صحيحاً.")
         if used_compact:
             st.caption("ℹ️ الطلب كبير — استُخدمت صيغة مختصرة لتفادي قطع واتساب للرسالة.")
-        with st.expander("👁️ معاينة نص الرسالة"):
-            st.code(text, language=None)
+
+        with st.expander("👁️ تفاصيل الطلب"):
+            for it in selected:
+                lt = (it["price"] or 0) * it["qty"]
+                st.write(f"• {it['name']} — {it['qty']} {it['unit']} = {msg.fmt_money(lt)}")
 
 
 # ----------------------------- وضع المندوب -----------------------------
@@ -217,21 +269,7 @@ def rep_view(catalog):
 
     st.divider()
     st.subheader("📖 تصفّح الكتالوج")
-    items = filtered(catalog)
-    cols_per_row = 4
-    for start in range(0, len(items), cols_per_row):
-        for col, (_idx, prod) in zip(st.columns(cols_per_row), items[start:start + cols_per_row]):
-            with col:
-                st.markdown('<div class="card">', unsafe_allow_html=True)
-                product_image(prod)
-                st.markdown(f"**{prod['name']}**")
-                if prod["code"]:
-                    st.markdown(f'<span class="code">كود: {prod["code"]}</span>', unsafe_allow_html=True)
-                st.markdown(
-                    f'<span class="price">{msg.fmt_money(prod["price"])}</span> &nbsp; {stock_badge(prod["stock"])}',
-                    unsafe_allow_html=True,
-                )
-                st.markdown("</div>", unsafe_allow_html=True)
+    browse(catalog, selectable=False)
 
 
 def _rep_upload():

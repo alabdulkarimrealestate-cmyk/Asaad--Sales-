@@ -24,12 +24,14 @@ import pandas as pd
 
 # الحقول القياسية التي يربط إليها المستخدم في واجهة الـ Mapping
 STANDARD_FIELDS = {
-    "name":   "اسم الصنف *",
-    "price":  "السعر",
-    "image":  "الصورة (رابط)",
-    "code":   "الكود",
-    "stock":  "المخزون المتاح",
-    "status": "الحالة (active/draft)",
+    "name":     "اسم الصنف *",
+    "price":    "السعر",
+    "image":    "الصورة (رابط)",
+    "code":     "الكود",
+    "unit":     "الوحدة (قطعة/كرتون)",
+    "stock":    "المخزون المتاح",
+    "category": "الفئة",
+    "status":   "الحالة (active/draft)",
 }
 REQUIRED_FIELDS = ["name"]  # الحد الأدنى لعمل التطبيق
 
@@ -87,24 +89,33 @@ def auto_mapping(df: pd.DataFrame) -> dict:
         # "Price / Kuwait" قد يكون شبه فارغ — نختار عمود السعر الأكثر امتلاءً
         price_candidates = [c for c in ("Variant Price", "Price / Kuwait") if c in cols]
         price_col = max(price_candidates, key=lambda c: df[c].notna().sum(), default=None)
+        # عمود وحدة بيع صريح إن أضافه المستخدم لاحقاً (Shopify لا يوفّره افتراضياً)
+        unit_col = next((c for c in cols if str(c).strip().lower() in ("unit", "uom")
+                         or "الوحدة" in str(c) or "وحدة" in str(c)), None)
+        # الفئة: نفضّل "Type" المختصر على "Product Category" المتشعّب
+        cat_col = "Type" if "Type" in cols else ("Product Category" if "Product Category" in cols else None)
         return {
-            "name":   "Title",
-            "price":  price_col,
-            "image":  "Image Src",
-            "code":   "Variant SKU" if "Variant SKU" in cols else None,
-            "stock":  "Variant Inventory Qty" if "Variant Inventory Qty" in cols else None,
-            "status": "Status" if "Status" in cols else None,
+            "name":     "Title",
+            "price":    price_col,
+            "image":    "Image Src",
+            "code":     "Variant SKU" if "Variant SKU" in cols else None,
+            "unit":     unit_col,
+            "stock":    "Variant Inventory Qty" if "Variant Inventory Qty" in cols else None,
+            "category": cat_col,
+            "status":   "Status" if "Status" in cols else None,
         }
 
     # تخمين عام: مطابقة كلمات شائعة (عربي/إنجليزي) في أسماء الأعمدة
     lowered = {c: str(c).strip().lower() for c in cols}
     hints = {
-        "name":   ["name", "title", "product", "اسم", "الصنف", "المنتج"],
-        "price":  ["price", "سعر", "السعر"],
-        "image":  ["image", "img", "photo", "صورة", "الصورة", "رابط"],
-        "code":   ["sku", "code", "barcode", "كود", "الكود"],
-        "stock":  ["qty", "quantity", "stock", "inventory", "مخزون", "الكمية", "المتاح"],
-        "status": ["status", "state", "الحالة"],
+        "name":     ["name", "title", "product", "اسم", "الصنف", "المنتج"],
+        "price":    ["price", "سعر", "السعر"],
+        "image":    ["image", "img", "photo", "صورة", "الصورة", "رابط"],
+        "code":     ["sku", "code", "barcode", "كود", "الكود"],
+        "unit":     ["unit", "uom", "وحدة", "الوحدة"],
+        "stock":    ["qty", "quantity", "stock", "inventory", "مخزون", "الكمية", "المتاح"],
+        "category": ["category", "type", "cat", "فئة", "الفئة", "تصنيف", "القسم"],
+        "status":   ["status", "state", "الحالة"],
     }
     mapping = {}
     for field, words in hints.items():
@@ -138,6 +149,7 @@ def build_catalog(df: pd.DataFrame, mapping: dict, only_active: bool = True) -> 
 
     img_col, price_col = mapping.get("image"), mapping.get("price")
     code_col, stock_col, status_col = mapping.get("code"), mapping.get("stock"), mapping.get("status")
+    unit_col, cat_col = mapping.get("unit"), mapping.get("category")
 
     def cell(row, col):
         if not col or col not in df.columns:
@@ -162,12 +174,13 @@ def build_catalog(df: pd.DataFrame, mapping: dict, only_active: bool = True) -> 
 
             images = [cell(r, img_col) for _, r in group.iterrows() if cell(r, img_col)]
             catalog.append({
-                "name":   cell(head, name_col),
-                "code":   cell(head, code_col),
-                "price":  _to_float(cell(head, price_col)),
-                "stock":  _to_float(cell(head, stock_col)),
-                "unit":   "قطعة",
-                "images": images,
+                "name":     cell(head, name_col),
+                "code":     cell(head, code_col),
+                "price":    _to_float(cell(head, price_col)),
+                "stock":    _to_float(cell(head, stock_col)),
+                "unit":     cell(head, unit_col) or "قطعة",
+                "category": cell(head, cat_col) or "أخرى",
+                "images":   images,
             })
     else:
         for _, row in df.iterrows():
@@ -178,12 +191,13 @@ def build_catalog(df: pd.DataFrame, mapping: dict, only_active: bool = True) -> 
                 continue
             img = cell(row, img_col)
             catalog.append({
-                "name":   name,
-                "code":   cell(row, code_col),
-                "price":  _to_float(cell(row, price_col)),
-                "stock":  _to_float(cell(row, stock_col)),
-                "unit":   "قطعة",
-                "images": [img] if img else [],
+                "name":     name,
+                "code":     cell(row, code_col),
+                "price":    _to_float(cell(row, price_col)),
+                "stock":    _to_float(cell(row, stock_col)),
+                "unit":     cell(row, unit_col) or "قطعة",
+                "category": cell(row, cat_col) or "أخرى",
+                "images":   [img] if img else [],
             })
 
     return catalog

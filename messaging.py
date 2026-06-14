@@ -41,12 +41,13 @@ def format_full(order: dict, company: str) -> str:
         lines.append(f"العميل: {order['customer']}")
     lines.append("—————————————")
     for i, it in enumerate(order["items"], 1):
+        unit = it.get("unit") or "قطعة"
         unit_price = it.get("price")
         if unit_price is not None:
             line_total = unit_price * it["qty"]
-            lines.append(f"{i}. {it['name']} ×{it['qty']} = {fmt_money(line_total)}")
+            lines.append(f"{i}. {it['name']} — {it['qty']} {unit} = {fmt_money(line_total)}")
         else:
-            lines.append(f"{i}. {it['name']} ×{it['qty']}")
+            lines.append(f"{i}. {it['name']} — {it['qty']} {unit}")
     lines.append("—————————————")
     lines.append(f"الإجمالي: {fmt_money(order['total'])}")
     return "\n".join(lines)
@@ -59,7 +60,8 @@ def format_compact(order: dict, company: str) -> str:
         lines.append(f"العميل: {order['customer']}")
     for it in order["items"]:
         tag = it.get("code") or _short(it["name"])
-        lines.append(f"{tag} ×{it['qty']}")
+        unit = it.get("unit") or "قطعة"
+        lines.append(f"{tag} ×{it['qty']} {unit}")
     lines.append(f"الإجمالي: {fmt_money(order['total'])}")
     return "\n".join(lines)
 
