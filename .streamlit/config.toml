@@ -1,0 +1,11 @@
+# إعدادات Streamlit للاستضافة الاحترافية خلف بروكسي (Railway/Render)
+[server]
+headless = true
+enableCORS = false
+enableXsrfProtection = false
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "light"
