@@ -18,6 +18,7 @@ import streamlit.components.v1 as components
 
 import data_loader as dl
 import messaging as msg
+import store
 from i18n import t, LANGS, unit_name
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -84,7 +85,7 @@ def show_header():
 
 # ----------------------------- تحميل الكتالوج + دمج الأسعار -----------------------------
 @st.cache_data(show_spinner=True)
-def load_default_catalog() -> list[dict]:
+def build_base_catalog() -> list[dict]:
     """
     يبني الكتالوج من ملف Shopify، ثم لكل منتج يولّد صنفاً منفصلاً لكل وحدة بيع
     (قطعة/كرتون/ريم...) بأقل سعر لها من قوائم الأسعار — بنفس الصورة.
@@ -117,10 +118,12 @@ def get_catalog() -> list[dict]:
     if ss.custom_catalog is not None:
         return ss.custom_catalog
     try:
-        return load_default_catalog()
+        base = build_base_catalog()
     except Exception as e:  # noqa: BLE001
         st.error(t("load_error", LANG, f=os.path.basename(DEFAULT_FILE), e=e))
         return []
+    # تعديلات الأدمن تُطبّق طازجة كل مرة (لا تحتاج مسح الكاش)
+    return store.apply_overrides(base, store.load_overrides())
 
 
 # ----------------------------- عناصر مشتركة -----------------------------
@@ -366,6 +369,108 @@ def _rep_upload():
         st.warning(str(e))
 
 
+# ----------------------------- وضع الأدمن -----------------------------
+def admin_view():
+    show_header()
+    st.subheader("🔐 لوحة تحكم الأدمن")
+
+    pw_env = os.environ.get("ADMIN_PASSWORD", "")
+    if not ss.get("admin_ok"):
+        pw = st.text_input("كلمة مرور الأدمن", type="password")
+        if st.button("دخول"):
+            ok = (pw == pw_env) if pw_env else (pw == "admin")
+            if ok:
+                ss.admin_ok = True
+                st.rerun()
+            else:
+                st.error("كلمة مرور خاطئة.")
+        if not pw_env:
+            st.warning("⚠️ لم تُضبط ADMIN_PASSWORD بعد — كلمة المرور المؤقتة: «admin». "
+                       "عيّنها في Railway → Variables ثم أعد المحاولة.")
+        return
+
+    tab_add, tab_edit = st.tabs(["➕ إضافة صنف يدوي", "✏️ تعديل / إخفاء صنف"])
+
+    # ---- إضافة صنف ----
+    with tab_add:
+        with st.form("admin_add", clear_on_submit=True):
+            name = st.text_input("الاسم (إنجليزي) *")
+            name_ar = st.text_input("الاسم بالعربي")
+            c1, c2 = st.columns(2)
+            code = c1.text_input("الكود")
+            unit = c2.text_input("الوحدة (PC/Carton/REAM...)", value="PC")
+            c3, c4 = st.columns(2)
+            price = c3.number_input("السعر (د.ك)", min_value=0.0, step=0.1, format="%.3f")
+            stock = c4.number_input("المخزون", min_value=0, step=1, value=0)
+            category = st.text_input("الفئة", value="أخرى")
+            img = st.text_input("رابط الصورة (URL)")
+            if st.form_submit_button("➕ إضافة الصنف", type="primary") and name.strip():
+                ov = store.load_overrides()
+                ov["added"].append({
+                    "name": name.strip(), "name_ar": name_ar.strip(), "code": code.strip(),
+                    "unit": unit.strip() or "PC", "price": price, "stock": stock,
+                    "category": category.strip() or "أخرى",
+                    "images": [img.strip()] if img.strip() else [],
+                })
+                store.save_overrides(ov)
+                st.success(f"تمت إضافة «{name}» ✅")
+
+    # ---- تعديل / إخفاء ----
+    with tab_edit:
+        cat = get_catalog()
+        if not cat:
+            st.info("لا توجد أصناف.")
+            return
+        labels = [
+            f"{p['name']} — {unit_name(p.get('unit'), 'ar')} — {msg.fmt_money(p.get('price'))}"
+            f"{(' — ' + p['code']) if p.get('code') else ''}"
+            for p in cat
+        ]
+        idx = st.selectbox("اختر الصنف", range(len(cat)),
+                           format_func=lambda i: labels[i], key="adm_pick")
+        prod = cat[idx]
+        pid = store.entry_id(prod)
+
+        with st.form("admin_edit"):
+            new_price = st.number_input("السعر (د.ك)", min_value=0.0, step=0.1, format="%.3f",
+                                        value=float(prod.get("price") or 0))
+            new_name = st.text_input("الاسم (إنجليزي)", value=prod.get("name", ""))
+            new_name_ar = st.text_input("الاسم بالعربي (الوصف)", value=prod.get("name_ar", ""))
+            cc1, cc2 = st.columns(2)
+            new_cat = cc1.text_input("الفئة", value=prod.get("category", ""))
+            new_stock = cc2.number_input("المخزون", min_value=0, step=1,
+                                         value=int(prod.get("stock") or 0))
+            col_s, col_h = st.columns(2)
+            save = col_s.form_submit_button("💾 حفظ التعديل", type="primary")
+            hide = col_h.form_submit_button("🙈 إخفاء الصنف")
+        if save:
+            ov = store.load_overrides()
+            ov["edits"][pid] = {"price": new_price, "name": new_name, "name_ar": new_name_ar,
+                                "category": new_cat, "stock": new_stock}
+            store.save_overrides(ov)
+            st.success("تم حفظ التعديل ✅")
+            st.rerun()
+        if hide:
+            ov = store.load_overrides()
+            if pid not in ov["hidden"]:
+                ov["hidden"].append(pid)
+            store.save_overrides(ov)
+            st.success("تم إخفاء الصنف ✅")
+            st.rerun()
+
+        # استعادة المخفيّات
+        ov = store.load_overrides()
+        if ov.get("hidden"):
+            with st.expander(f"🗂️ المخفيّات ({len(ov['hidden'])})"):
+                for h in list(ov["hidden"]):
+                    cols = st.columns([4, 1])
+                    cols[0].write(h)
+                    if cols[1].button("استعادة", key=f"unhide_{h}"):
+                        ov["hidden"].remove(h)
+                        store.save_overrides(ov)
+                        st.rerun()
+
+
 # ----------------------------- شريط اللغة + التوجيه -----------------------------
 top_l, top_r = st.columns([4, 1])
 with top_r:
@@ -375,12 +480,13 @@ with top_r:
 params = st.query_params
 rep_param = params.get("rep")
 mode_param = params.get("mode")
+admin_param = params.get("admin")
 
-catalog = get_catalog()
-
-if rep_param:                       # ?rep=<رقم> ⇒ وضع العميل
-    customer_view(catalog, rep_param)
+if admin_param:                     # ?admin=1 ⇒ لوحة الأدمن
+    admin_view()
+elif rep_param:                     # ?rep=<رقم> ⇒ وضع العميل
+    customer_view(get_catalog(), rep_param)
 else:                               # ?mode=rep أو الافتراضي ⇒ وضع المندوب
     if mode_param != "rep":
         st.info(t("rep_banner", LANG))
-    rep_view(catalog)
+    rep_view(get_catalog())
