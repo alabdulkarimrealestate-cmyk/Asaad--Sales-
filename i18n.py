@@ -88,6 +88,32 @@ TR = {
 }
 
 
+# ترجمة وحدات البيع (الاختصارات الإنجليزية في قوائم الأسعار)
+UNITS = {
+    "PC":      {"ar": "قطعة", "en": "Piece"},
+    "PKT":     {"ar": "باكت", "en": "Packet"},
+    "CARTON":  {"ar": "كرتون", "en": "Carton"},
+    "BOX":     {"ar": "علبة", "en": "Box"},
+    "SET":     {"ar": "طقم", "en": "Set"},
+    "DOZ":     {"ar": "دستة", "en": "Dozen"},
+    "ROLL":    {"ar": "رول", "en": "Roll"},
+    "REAM":    {"ar": "ريم", "en": "Ream"},
+    "FILE":    {"ar": "ملف", "en": "File"},
+    "BAG":     {"ar": "كيس", "en": "Bag"},
+    "STAND":   {"ar": "ستاند", "en": "Stand"},
+    "DISPLAY": {"ar": "ديسبلاي", "en": "Display"},
+    "TRIP":    {"ar": "عبوة", "en": "Trip"},
+}
+
+
+def unit_name(unit: str, lang: str = "ar") -> str:
+    """اسم الوحدة باللغة المطلوبة؛ يرجع القيمة الأصلية لو غير معروفة."""
+    if not unit:
+        return "قطعة" if lang == "ar" else "Piece"
+    e = UNITS.get(str(unit).strip().upper())
+    return e.get(lang, unit) if e else unit
+
+
 def t(key: str, lang: str = "ar", **kw) -> str:
     """يعيد النص المترجم للمفتاح؛ يتراجع للعربية ثم للمفتاح نفسه."""
     entry = TR.get(key, {})

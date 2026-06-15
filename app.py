@@ -18,7 +18,7 @@ import streamlit.components.v1 as components
 
 import data_loader as dl
 import messaging as msg
-from i18n import t, LANGS
+from i18n import t, LANGS, unit_name
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_FILE = os.path.join(BASE_DIR, "products_export_1 (1).csv")
@@ -85,20 +85,31 @@ def show_header():
 # ----------------------------- تحميل الكتالوج + دمج الأسعار -----------------------------
 @st.cache_data(show_spinner=True)
 def load_default_catalog() -> list[dict]:
-    """يبني الكتالوج من ملف Shopify ثم يدمج أقل سعر من قوائم الأسعار الـ3."""
+    """
+    يبني الكتالوج من ملف Shopify، ثم لكل منتج يولّد صنفاً منفصلاً لكل وحدة بيع
+    (قطعة/كرتون/ريم...) بأقل سعر لها من قوائم الأسعار — بنفس الصورة.
+    المنتجات غير الموجودة في القوائم تبقى صنفاً واحداً بسعر Shopify.
+    """
     df = dl.read_path(DEFAULT_FILE)
     mapping = dl.auto_mapping(df)
-    catalog = dl.build_catalog(df, mapping, only_active=True)
+    base = dl.build_catalog(df, mapping, only_active=True)
 
-    paths = sorted(glob.glob(PRICE_GLOB))
-    price_map = dl.build_price_map(paths)
-    name_map = dl.build_name_map(paths)   # أسماء عربية من قوائم الأسعار
-    for p in catalog:
+    units = dl.build_price_units(sorted(glob.glob(PRICE_GLOB)))
+    catalog: list[dict] = []
+    for p in base:
         code = dl.normalize_code(p.get("code"))
-        if code and code in price_map:
-            p["price"] = price_map[code]   # أقل سعر من القوائم
-        # غير الموجود: يبقى بسعر Shopify كما هو
-        p["name_ar"] = name_map.get(code, "") if code else ""
+        variants = units.get(code) if code else None
+        if variants:
+            for v in variants:                 # صنف منفصل لكل وحدة
+                q = dict(p)
+                q["price"] = v["price"]         # أقل سعر لهذه الوحدة
+                q["unit"] = v["unit"]           # كود الوحدة (PC/Carton/...)
+                q["name_ar"] = v["name_ar"] or ""
+                catalog.append(q)
+        else:
+            p["unit"] = "PC"                    # غير موجود بالقوائم: قطعة بسعر Shopify
+            p["name_ar"] = ""
+            catalog.append(p)
     return catalog
 
 
@@ -154,7 +165,7 @@ def _render_cards(page_items, selectable):
                 meta = []
                 if prod["code"]:
                     meta.append(t("code_label", LANG, c=prod["code"]))
-                meta.append(t("unit_label", LANG, u=prod["unit"]))
+                meta.append(t("unit_label", LANG, u=unit_name(prod["unit"], LANG)))
                 st.markdown(f'<span class="code">{" · ".join(meta)}</span>', unsafe_allow_html=True)
                 st.markdown(f'{price_html(prod)} &nbsp; {stock_badge(prod["stock"])}',
                             unsafe_allow_html=True)
@@ -163,7 +174,7 @@ def _render_cards(page_items, selectable):
                     key = f"q{idx}"
                     if key not in st.session_state:
                         st.session_state[key] = int(ss.qty.get(idx, 0))
-                    st.number_input(t("qty_label", LANG, u=prod["unit"]), min_value=0, step=1,
+                    st.number_input(t("qty_label", LANG, u=unit_name(prod["unit"], LANG)), min_value=0, step=1,
                                     key=key, on_change=_set_qty, args=(idx,), disabled=out)
                 st.markdown("</div>", unsafe_allow_html=True)
 
@@ -242,7 +253,7 @@ def customer_view(catalog, rep_number):
 def cart_panel(catalog, rep_number):
     selected = [
         {"name": disp(catalog[i]), "code": catalog[i]["code"], "price": catalog[i]["price"],
-         "unit": catalog[i]["unit"], "qty": q}
+         "unit": unit_name(catalog[i]["unit"], LANG), "qty": q}
         for i, q in ss.qty.items() if i < len(catalog)
     ]
     with st.container(border=True):

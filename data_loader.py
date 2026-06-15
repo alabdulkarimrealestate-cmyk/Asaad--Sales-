@@ -97,6 +97,59 @@ def build_price_map(paths, sheet="details", code_col="الصنف", price_col="أ
     return out
 
 
+def build_price_units(paths, sheet="details", code_col="الصنف", name_col="الصنف: الاسم",
+                      unit_col="الكمية | وحدة", unitname_col="الكمية | وحدة: الاسم",
+                      price_col="أقل سعر") -> dict:
+    """
+    لكل كود: قائمة وحدات البيع، كل وحدة بأقل «أقل سعر» لها عبر الملفات.
+    يعيد {كود مُطبّع: [ {"unit": كود الوحدة, "price": float, "name_ar": str}, ... ]}
+    مرتّبة تصاعدياً بالسعر (الأصغر أولاً).
+    """
+    import warnings
+    acc: dict[str, dict] = {}   # code -> { unit -> {"price","name_ar"} }
+    for p in paths:
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                df = pd.read_excel(p, sheet_name=sheet, dtype=str).iloc[1:]
+        except Exception:  # noqa: BLE001
+            continue
+        if code_col not in df.columns or price_col not in df.columns:
+            continue
+        for _, r in df.iterrows():
+            code = normalize_code(r.get(code_col))
+            price = _to_float(r.get(price_col))
+            if not code or price is None or price <= 0:
+                continue
+            unit = ""
+            for c in (unitname_col, unit_col):
+                if c in df.columns:
+                    val = str(r.get(c) or "").strip()
+                    if val and val.lower() != "nan":
+                        unit = val
+                        break
+            if not unit:
+                unit = "PC"
+            name_ar = str(r.get(name_col) or "").strip() if name_col in df.columns else ""
+            if name_ar.lower() == "nan":
+                name_ar = ""
+            d = acc.setdefault(code, {})
+            cur = d.get(unit)
+            if cur is None:
+                d[unit] = {"price": price, "name_ar": name_ar}
+            else:
+                if price < cur["price"]:
+                    cur["price"] = price
+                if name_ar and not cur["name_ar"]:
+                    cur["name_ar"] = name_ar
+    out: dict[str, list] = {}
+    for code, units in acc.items():
+        lst = [{"unit": u, "price": v["price"], "name_ar": v["name_ar"]} for u, v in units.items()]
+        lst.sort(key=lambda x: x["price"])
+        out[code] = lst
+    return out
+
+
 def build_name_map(paths, sheet="details", code_col="الصنف", name_col="الصنف: الاسم") -> dict:
     """
     يبني خريطة {كود مُطبّع: اسم عربي} من قوائم الأسعار.
