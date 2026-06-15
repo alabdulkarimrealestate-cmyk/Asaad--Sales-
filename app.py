@@ -173,13 +173,13 @@ def _render_cards(page_items, selectable):
                 st.markdown(f'{price_html(prod)} &nbsp; {stock_badge(prod["stock"])}',
                             unsafe_allow_html=True)
                 if selectable:
-                    out = prod["stock"] == 0
+                    # النافد يظل قابلاً للطلب (طلب مسبق) مع بقاء شارة «نافد» كتنبيه
                     pid = store.entry_id(prod)
                     wkey = f"q{idx}"
                     # نزرع القيمة كل مرة من مصدر الحقيقة (السلة بالمعرّف الثابت)
                     st.session_state[wkey] = int(ss.qty.get(pid, 0))
                     st.number_input(t("qty_label", LANG, u=unit_name(prod["unit"], LANG)), min_value=0, step=1,
-                                    key=wkey, on_change=_set_qty, args=(wkey, pid), disabled=out)
+                                    key=wkey, on_change=_set_qty, args=(wkey, pid))
                 st.markdown("</div>", unsafe_allow_html=True)
 
 
