@@ -70,33 +70,6 @@ def normalize_code(value) -> str:
     return " ".join(str(value or "").strip().upper().split())
 
 
-def build_price_map(paths, sheet="details", code_col="الصنف", price_col="أقل سعر") -> dict:
-    """
-    يبني خريطة {كود مُطبّع: أقل سعر} من ملفات قوائم الأسعار.
-    لكل كود نأخذ أصغر قيمة موجبة في عمود السعر عبر كل الملفات والصفوف.
-    الصف التقني الأول في شيت details يُتجاهَل.
-    """
-    import warnings
-    out: dict[str, float] = {}
-    for p in paths:
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")  # تحذير أنماط openpyxl غير الضار
-                df = pd.read_excel(p, sheet_name=sheet, dtype=str).iloc[1:]
-        except Exception:  # noqa: BLE001 — ملف تالف/شيت مفقود: نتخطّاه
-            continue
-        if code_col not in df.columns or price_col not in df.columns:
-            continue
-        for code_raw, price_raw in zip(df[code_col], df[price_col]):
-            code = normalize_code(code_raw)
-            price = _to_float(price_raw)
-            if not code or price is None or price <= 0:
-                continue
-            if code not in out or price < out[code]:
-                out[code] = price
-    return out
-
-
 def build_price_units(paths, sheet="details", code_col="الصنف", name_col="الصنف: الاسم",
                       unit_col="الكمية | وحدة", unitname_col="الكمية | وحدة: الاسم",
                       price_col="أقل سعر") -> dict:
@@ -147,31 +120,6 @@ def build_price_units(paths, sheet="details", code_col="الصنف", name_col="�
         lst = [{"unit": u, "price": v["price"], "name_ar": v["name_ar"]} for u, v in units.items()]
         lst.sort(key=lambda x: x["price"])
         out[code] = lst
-    return out
-
-
-def build_name_map(paths, sheet="details", code_col="الصنف", name_col="الصنف: الاسم") -> dict:
-    """
-    يبني خريطة {كود مُطبّع: اسم عربي} من قوائم الأسعار.
-    لكل كود نأخذ أول اسم عربي غير فارغ. الصف التقني الأول يُتجاهَل.
-    """
-    import warnings
-    out: dict[str, str] = {}
-    for p in paths:
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                df = pd.read_excel(p, sheet_name=sheet, dtype=str).iloc[1:]
-        except Exception:  # noqa: BLE001
-            continue
-        if code_col not in df.columns or name_col not in df.columns:
-            continue
-        for code_raw, name_raw in zip(df[code_col], df[name_col]):
-            code = normalize_code(code_raw)
-            name = "" if name_raw is None else str(name_raw).strip()
-            if not code or not name or name.lower() == "nan":
-                continue
-            out.setdefault(code, name)  # أول اسم غير فارغ يفوز
     return out
 
 

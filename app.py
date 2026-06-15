@@ -149,13 +149,13 @@ def price_html(prod):
     return f'<span class="price">{money(prod["price"])}</span>'
 
 
-def _set_qty(idx):
-    """on_change: يحدّث السلة فور تغيير الكمية (قبل إعادة الرسم)."""
-    v = int(st.session_state.get(f"q{idx}", 0))
+def _set_qty(wkey, pid):
+    """on_change: يحدّث السلة بمعرّف الصنف الثابت (لا بالموقع) — آمن ضد تغيّر الترتيب."""
+    v = int(st.session_state.get(wkey, 0))
     if v > 0:
-        ss.qty[idx] = v
+        ss.qty[pid] = v
     else:
-        ss.qty.pop(idx, None)
+        ss.qty.pop(pid, None)
 
 
 def _render_cards(page_items, selectable):
@@ -174,11 +174,12 @@ def _render_cards(page_items, selectable):
                             unsafe_allow_html=True)
                 if selectable:
                     out = prod["stock"] == 0
-                    key = f"q{idx}"
-                    if key not in st.session_state:
-                        st.session_state[key] = int(ss.qty.get(idx, 0))
+                    pid = store.entry_id(prod)
+                    wkey = f"q{idx}"
+                    # نزرع القيمة كل مرة من مصدر الحقيقة (السلة بالمعرّف الثابت)
+                    st.session_state[wkey] = int(ss.qty.get(pid, 0))
                     st.number_input(t("qty_label", LANG, u=unit_name(prod["unit"], LANG)), min_value=0, step=1,
-                                    key=key, on_change=_set_qty, args=(idx,), disabled=out)
+                                    key=wkey, on_change=_set_qty, args=(wkey, pid), disabled=out)
                 st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -254,10 +255,11 @@ def customer_view(catalog, rep_number):
 
 
 def cart_panel(catalog, rep_number):
+    by_id = {store.entry_id(p): p for p in catalog}
     selected = [
-        {"name": disp(catalog[i]), "code": catalog[i]["code"], "price": catalog[i]["price"],
-         "unit": unit_name(catalog[i]["unit"], LANG), "qty": q}
-        for i, q in ss.qty.items() if i < len(catalog)
+        {"name": disp(by_id[pid]), "code": by_id[pid].get("code", ""),
+         "price": by_id[pid].get("price"), "unit": unit_name(by_id[pid].get("unit"), LANG), "qty": q}
+        for pid, q in ss.qty.items() if pid in by_id
     ]
     with st.container(border=True):
         if not selected:
