@@ -23,7 +23,8 @@ from i18n import t, LANGS
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_FILE = os.path.join(BASE_DIR, "products_export_1 (1).csv")
 PRICE_GLOB = os.path.join(BASE_DIR, "SalesPriceList-*.xlsx")
-COMPANY = "متجري"
+LOGO = os.path.join(BASE_DIR, "logo.png")
+COMPANY = "Asaad Alabdulkarim & Partner Co."
 PLACEHOLDER = "https://placehold.co/300x300?text=No+Image"
 ALL_CAT = "__ALL__"   # قيمة ثابتة لخيار «كل الفئات» (مستقرة عبر اللغات)
 
@@ -73,6 +74,12 @@ def disp(prod):
     if LANG == "ar" and prod.get("name_ar"):
         return prod["name_ar"]
     return prod["name"]
+
+
+def show_header():
+    """شعار الشركة أعلى الصفحة (في الوضعين)."""
+    if os.path.exists(LOGO):
+        st.image(LOGO, use_container_width=True)
 
 
 # ----------------------------- تحميل الكتالوج + دمج الأسعار -----------------------------
@@ -226,7 +233,7 @@ def browse(catalog, selectable):
 
 # ----------------------------- وضع العميل -----------------------------
 def customer_view(catalog, rep_number):
-    st.title(t("catalog_title", LANG, company=COMPANY))
+    show_header()
     cart_panel(catalog, rep_number)
     st.divider()
     browse(catalog, selectable=True)
@@ -273,7 +280,8 @@ def cart_panel(catalog, rep_number):
 
 # ----------------------------- وضع المندوب -----------------------------
 def rep_view(catalog):
-    st.title(t("rep_title", LANG))
+    show_header()
+    st.subheader(t("rep_title", LANG))
     st.caption(t("rep_caption", LANG))
 
     with st.expander(t("gen_link", LANG), expanded=True):
