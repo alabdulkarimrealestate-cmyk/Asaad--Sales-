@@ -27,8 +27,8 @@ def _short(text: str, limit: int = 22) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def format_full(order: dict, company: str, lang: str = "ar") -> str:
-    """الصيغة الكاملة: أسماء كاملة + إجمالي السطر + الإجمالي."""
+def format_full(order: dict, company: str, lang: str = "ar", show_price: bool = True) -> str:
+    """الصيغة الكاملة. show_price=False يحذف الأسعار والإجمالي من النص."""
     lines = [t("msg_new_order", lang, company=company), t("msg_date", lang, d=order["date"])]
     if order.get("customer"):
         lines.append(t("msg_customer", lang, c=order["customer"]))
@@ -36,18 +36,19 @@ def format_full(order: dict, company: str, lang: str = "ar") -> str:
     for i, it in enumerate(order["items"], 1):
         unit = it.get("unit") or ""
         qty_str = f"{it['qty']} {unit}".strip()
-        if it.get("price") is not None:
+        if show_price and it.get("price") is not None:
             line_total = it["price"] * it["qty"]
             lines.append(f"{i}. {it['name']} — {qty_str} = {fmt_money(line_total, lang)}")
         else:
             lines.append(f"{i}. {it['name']} — {qty_str}")
     lines.append("—————————————")
-    lines.append(t("msg_total", lang, t=fmt_money(order["total"], lang)))
+    if show_price:
+        lines.append(t("msg_total", lang, t=fmt_money(order["total"], lang)))
     return "\n".join(lines)
 
 
-def format_compact(order: dict, company: str, lang: str = "ar") -> str:
-    """الصيغة المختصرة: «الكود ×الكمية» (أو اسم مقتطع) + الإجمالي فقط."""
+def format_compact(order: dict, company: str, lang: str = "ar", show_price: bool = True) -> str:
+    """الصيغة المختصرة: «الكود ×الكمية» (+ الإجمالي إن كان السعر ظاهراً)."""
     lines = [t("msg_order_short", lang, company=company, d=order["date"])]
     if order.get("customer"):
         lines.append(t("msg_customer", lang, c=order["customer"]))
@@ -55,20 +56,22 @@ def format_compact(order: dict, company: str, lang: str = "ar") -> str:
         tag = it.get("code") or _short(it["name"])
         unit = it.get("unit") or ""
         lines.append(f"{tag} ×{it['qty']} {unit}".strip())
-    lines.append(t("msg_total", lang, t=fmt_money(order["total"], lang)))
+    if show_price:
+        lines.append(t("msg_total", lang, t=fmt_money(order["total"], lang)))
     return "\n".join(lines)
 
 
-def build_message(order: dict, company: str, lang: str = "ar", mode: str = "auto") -> tuple[str, bool]:
+def build_message(order: dict, company: str, lang: str = "ar", mode: str = "auto",
+                  show_price: bool = True) -> tuple[str, bool]:
     """يبني نص الرسالة. mode ∈ {auto, full, compact}. يعيد (النص, هل_مختصر)."""
     if mode == "compact":
-        return format_compact(order, company, lang), True
-    full = format_full(order, company, lang)
+        return format_compact(order, company, lang, show_price), True
+    full = format_full(order, company, lang, show_price)
     if mode == "full":
         return full, False
     if len(urllib.parse.quote(full)) <= SAFE_ENCODED_LEN:
         return full, False
-    return format_compact(order, company, lang), True
+    return format_compact(order, company, lang, show_price), True
 
 
 def clean_number(number: str) -> str:

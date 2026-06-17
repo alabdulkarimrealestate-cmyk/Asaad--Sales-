@@ -158,7 +158,7 @@ def _set_qty(wkey, pid):
         ss.qty.pop(pid, None)
 
 
-def _render_cards(page_items, selectable):
+def _render_cards(page_items, selectable, show_price=True):
     for s in range(0, len(page_items), COLS):
         for col, (idx, prod) in zip(st.columns(COLS), page_items[s:s + COLS]):
             with col:
@@ -170,7 +170,8 @@ def _render_cards(page_items, selectable):
                     meta.append(t("code_label", LANG, c=prod["code"]))
                 meta.append(t("unit_label", LANG, u=unit_name(prod["unit"], LANG)))
                 st.markdown(f'<span class="code">{" · ".join(meta)}</span>', unsafe_allow_html=True)
-                st.markdown(f'{price_html(prod)} &nbsp; {stock_badge(prod["stock"])}',
+                price_part = price_html(prod) if show_price else ""
+                st.markdown(f'{price_part} &nbsp; {stock_badge(prod["stock"])}',
                             unsafe_allow_html=True)
                 if selectable:
                     # النافد يظل قابلاً للطلب (طلب مسبق) مع بقاء شارة «نافد» كتنبيه
@@ -183,7 +184,7 @@ def _render_cards(page_items, selectable):
                 st.markdown("</div>", unsafe_allow_html=True)
 
 
-def browse(catalog, selectable):
+def browse(catalog, selectable, show_price=True):
     """فلترة بالفئة + بحث بنطاق + تقسيم لصفحات + شبكة الكروت."""
     counts = Counter((p.get("category") or "أخرى") for p in catalog)
     cats = sorted(counts)
@@ -232,7 +233,7 @@ def browse(catalog, selectable):
     page_items = items[start:start + PAGE_SIZE]
 
     st.caption(t("showing", LANG, a=len(page_items), b=len(items), p=page, tp=total_pages))
-    _render_cards(page_items, selectable)
+    _render_cards(page_items, selectable, show_price)
 
     if total_pages > 1:
         prev, info, nxt = st.columns(3)
@@ -247,14 +248,14 @@ def browse(catalog, selectable):
 
 
 # ----------------------------- وضع العميل -----------------------------
-def customer_view(catalog, rep_number):
+def customer_view(catalog, rep_number, show_price=True):
     show_header()
-    cart_panel(catalog, rep_number)
+    cart_panel(catalog, rep_number, show_price)
     st.divider()
-    browse(catalog, selectable=True)
+    browse(catalog, selectable=True, show_price=show_price)
 
 
-def cart_panel(catalog, rep_number):
+def cart_panel(catalog, rep_number, show_price=True):
     by_id = {store.entry_id(p): p for p in catalog}
     selected = [
         {"name": disp(by_id[pid]), "code": by_id[pid].get("code", ""),
@@ -268,8 +269,11 @@ def cart_panel(catalog, rep_number):
             return
 
         total = sum((it["price"] or 0) * it["qty"] for it in selected)
-        st.markdown(f"### {t('cart_summary', LANG, n=len(selected), total=money(total))}",
-                    unsafe_allow_html=True)
+        if show_price:
+            st.markdown(f"### {t('cart_summary', LANG, n=len(selected), total=money(total))}",
+                        unsafe_allow_html=True)
+        else:
+            st.markdown(f"### {t('cart_summary_noprice', LANG, n=len(selected))}")
 
         st.text_input(t("your_name", LANG), key="cust_name")
         order = {
@@ -278,7 +282,7 @@ def cart_panel(catalog, rep_number):
             "items": selected,
             "total": total,
         }
-        text, used_compact = msg.build_message(order, COMPANY, LANG, mode="auto")
+        text, used_compact = msg.build_message(order, COMPANY, LANG, mode="auto", show_price=show_price)
 
         if msg.clean_number(rep_number):
             link = msg.whatsapp_link(rep_number, text)
@@ -290,8 +294,11 @@ def cart_panel(catalog, rep_number):
 
         with st.expander(t("order_details", LANG)):
             for it in selected:
-                lt = (it["price"] or 0) * it["qty"]
-                st.write(f"• {it['name']} — {it['qty']} {it['unit']} = {money(lt)}")
+                if show_price:
+                    lt = (it["price"] or 0) * it["qty"]
+                    st.write(f"• {it['name']} — {it['qty']} {it['unit']} = {money(lt)}")
+                else:
+                    st.write(f"• {it['name']} — {it['qty']} {it['unit']}")
 
 
 # ----------------------------- وضع المندوب -----------------------------
@@ -302,8 +309,10 @@ def rep_view(catalog):
 
     with st.expander(t("gen_link", LANG), expanded=True):
         rep_number = st.text_input(t("rep_number", LANG))
+        show_price_cust = st.checkbox(t("show_price_cust", LANG), value=True)
         clean = msg.clean_number(rep_number)
         if clean:
+            link_suffix = f"/?rep={clean}" + ("" if show_price_cust else "&price=0")
             components.html(
                 f"""
                 <div dir="{DIRECTION}" style="font-family:'Segoe UI',Tahoma,sans-serif;">
@@ -324,7 +333,7 @@ def rep_view(catalog):
                     (function(){{
                       var loc = window.parent.location;
                       var base = (loc.origin + loc.pathname).replace(/\\/+$/,'');
-                      document.getElementById('repLink').value = base + '/?rep={clean}';
+                      document.getElementById('repLink').value = base + '{link_suffix}';
                     }})();
                   </script>
                 </div>
@@ -487,7 +496,8 @@ admin_param = params.get("admin")
 if admin_param:                     # ?admin=1 ⇒ لوحة الأدمن
     admin_view()
 elif rep_param:                     # ?rep=<رقم> ⇒ وضع العميل
-    customer_view(get_catalog(), rep_param)
+    show_price = params.get("price") != "0"   # &price=0 ⇒ إخفاء السعر
+    customer_view(get_catalog(), rep_param, show_price)
 else:                               # ?mode=rep أو الافتراضي ⇒ وضع المندوب
     if mode_param != "rep":
         st.info(t("rep_banner", LANG))
